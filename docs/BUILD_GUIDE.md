@@ -2,10 +2,11 @@
 
 ## Windows 版本
 
-Windows exe 已打包完成，位于 `dist/LinuxDoHelper_v8.0_Windows.exe`
+Windows 可执行文件请优先从 GitHub Releases 或 Actions 构建产物获取，文件名示例：
+- `LinuxDoHelper-pyinstaller-<version>-windows-amd64.exe`
+- `LinuxDoHelper-nuitka-windows-amd64.exe`
 
-### 直接运行
-双击 `LinuxDoHelper_v8.0_Windows.exe` 即可运行
+如需本地打包，请参考下文 PyInstaller/Nuitka 的命令并在 Windows 上执行。
 
 ---
 
@@ -18,7 +19,8 @@ Windows exe 已打包完成，位于 `dist/LinuxDoHelper_v8.0_Windows.exe`
 brew install python@3.11
 
 # 2. 安装依赖
-pip3 install DrissionPage pystray pillow pyinstaller
+pip3 install -r requirements.txt
+pip3 install pyinstaller
 
 # 3. 安装 Chrome 浏览器
 # 从 https://www.google.com/chrome/ 下载安装
@@ -32,11 +34,14 @@ cd /path/to/linuxdo
 
 # 执行打包
 pyinstaller --onefile --windowed \
-    --name "LinuxDoHelper_v8.0_macOS" \
+    --name "LinuxDoHelper_v<version>_macOS" \
     --hidden-import tkinter \
     --hidden-import tkinter.ttk \
     --hidden-import tkinter.scrolledtext \
     --hidden-import DrissionPage \
+    --hidden-import pystray \
+    --hidden-import PIL \
+    --add-data "icon.ico:." \
     --clean --noconfirm \
     linux_do_gui.py
 
@@ -45,15 +50,15 @@ python3 build.py
 ```
 
 ### 输出文件
-- `dist/LinuxDoHelper_v8.0_macOS` (可执行文件)
+- `dist/LinuxDoHelper_v<version>_macOS` (可执行文件)
 
 ### 运行方式
 ```bash
 # 赋予执行权限
-chmod +x dist/LinuxDoHelper_v8.0_macOS
+chmod +x dist/LinuxDoHelper_v<version>_macOS
 
 # 运行
-./dist/LinuxDoHelper_v8.0_macOS
+./dist/LinuxDoHelper_v<version>_macOS
 ```
 
 ### macOS 安全提示
@@ -79,7 +84,8 @@ sudo yum install python3 python3-pip python3-tkinter
 sudo pacman -S python python-pip tk
 
 # 安装依赖
-pip3 install DrissionPage pystray pillow pyinstaller
+pip3 install -r requirements.txt
+pip3 install pyinstaller
 
 # 安装 Chrome 浏览器
 # Ubuntu/Debian
@@ -96,11 +102,14 @@ cd /path/to/linuxdo
 
 # 执行打包
 pyinstaller --onefile --windowed \
-    --name "LinuxDoHelper_v8.0_Linux" \
+    --name "LinuxDoHelper_v<version>_Linux" \
     --hidden-import tkinter \
     --hidden-import tkinter.ttk \
     --hidden-import tkinter.scrolledtext \
     --hidden-import DrissionPage \
+    --hidden-import pystray \
+    --hidden-import PIL \
+    --add-data "icon.ico:." \
     --clean --noconfirm \
     linux_do_gui.py
 
@@ -109,15 +118,15 @@ python3 build.py
 ```
 
 ### 输出文件
-- `dist/LinuxDoHelper_v8.0_Linux` (可执行文件)
+- `dist/LinuxDoHelper_v<version>_Linux` (可执行文件)
 
 ### 运行方式
 ```bash
 # 赋予执行权限
-chmod +x dist/LinuxDoHelper_v8.0_Linux
+chmod +x dist/LinuxDoHelper_v<version>_Linux
 
 # 运行
-./dist/LinuxDoHelper_v8.0_Linux
+./dist/LinuxDoHelper_v<version>_Linux
 ```
 
 ### Linux 注意事项
@@ -143,7 +152,7 @@ A: 检查是否安装了 Chrome 浏览器
 A: DrissionPage 会自动下载，确保网络通畅
 
 #### Q: macOS 提示"已损坏，无法打开"
-A: 执行 `xattr -cr /path/to/LinuxDoHelper_v8.0_macOS`
+A: 执行 `xattr -cr /path/to/LinuxDoHelper_v<version>_macOS`
 
 #### Q: Linux 提示 tkinter 相关错误
 A: 安装 python3-tk 包
@@ -156,7 +165,7 @@ A: 安装 python3-tk 包
 
 ```bash
 # 安装依赖
-pip install DrissionPage pystray pillow
+pip install -r requirements.txt
 
 # 运行
 python linux_do_gui.py
@@ -187,10 +196,13 @@ python linux_do_gui.py
 
 ```
 linuxdo/
-├── linux_do_gui.py          # 主程序
+├── linux_do_gui.py           # 主程序
 ├── build.py                  # 打包脚本
 ├── README.md                 # 项目说明
-├── BUILD_GUIDE.md           # 本文档
+├── requirements.txt          # 依赖列表
+├── docs/
+│   ├── BUILD_GUIDE.md        # 本文档
+│   └── Linux 环境安装指南.md  # Linux 环境安装指南
 └── dist/
-    └── LinuxDoHelper_v8.0_Windows.exe  # Windows 可执行文件
+    └── LinuxDoHelper_<...>   # 构建产物示例
 ```

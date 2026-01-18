@@ -77,8 +77,6 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           python -m nuitka \
-            --onefile \
-            --standalone \
             --mode=app \
             --assume-yes-for-downloads \
             --enable-plugin=tk-inter \
