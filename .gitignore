@@ -32,6 +32,8 @@ wheels/
 *.png
 *.pyw
 nul
+!requirements.txt
+!requirements-*.txt
 
 # IDE
 .idea/
@@ -54,3 +56,4 @@ LDStatusPro/
 
 # Dist folder (exe files are too large for git)
 dist/
+.DS_Store

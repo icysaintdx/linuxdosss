@@ -488,12 +488,13 @@ class Bot:
             s._random_delay(1.5, 3, "等待编辑器")
 
             # 输入内容 - 使用安全的方式传递内容
+            safe_content = json.dumps(content)
             s.pg.run_js(f"""
             (function() {{
                 const textarea = document.querySelector('#reply-control textarea, .d-editor-input');
                 if (textarea) {{
                     textarea.focus();
-                    textarea.value = '{content}';
+                    textarea.value = {safe_content};
                     textarea.dispatchEvent(new Event('input', {{bubbles: true}}));
                 }}
             }})();
@@ -700,6 +701,7 @@ class GUI:
         s.tray_icon = None
         s.tray_thread = None
         s._running_status = "就绪"
+        s._stop_requested = False
 
         s._ui()
 
@@ -1368,6 +1370,7 @@ class GUI:
 
         # 重置初始数据
         s.initial_requirements = []
+        s._stop_requested = False
 
         s.bot = Bot(s.cfg, s.cats, s._lg, s._update_info, s._update_progress)
         s.th = threading.Thread(target=s._run, daemon=True)
@@ -1382,17 +1385,24 @@ class GUI:
     def _done(s):
         s.start_btn.config(state=tk.NORMAL)
         s.stop_btn.config(state=tk.DISABLED)
-        s.status.set("已完成")
-
-        # 更新托盘状态
-        if s.bot:
-            s._update_tray_status("已完成", s.bot.stats)
+        if s._stop_requested:
+            s.status.set("已停止")
+            if s.bot:
+                s._update_tray_status("已停止", s.bot.stats)
+            else:
+                s._update_tray_status("已停止")
         else:
-            s._update_tray_status("已完成")
+            s.status.set("已完成")
+            if s.bot:
+                s._update_tray_status("已完成", s.bot.stats)
+            else:
+                s._update_tray_status("已完成")
+        s._stop_requested = False
 
     def _stop(s):
         if s.bot:
             s.bot.stop()
+        s._stop_requested = True
         s.status.set("正在停止...")
         s._update_tray_status("已停止")
 

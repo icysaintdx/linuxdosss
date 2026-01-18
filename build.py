@@ -58,10 +58,16 @@ def build_windows():
         "--hidden-import", "tkinter.ttk",
         "--hidden-import", "tkinter.scrolledtext",
         "--hidden-import", "DrissionPage",
+        "--hidden-import", "pystray",
+        "--hidden-import", "PIL",
         "--clean",
         "--noconfirm",
         MAIN_SCRIPT
     ]
+
+    # 打包图标数据，供运行时托盘与窗口图标使用
+    if os.path.exists(ICON_WIN):
+        cmd.extend(["--add-data", f"{ICON_WIN};."])
 
     # 如果有图标文件
     if os.path.exists(ICON_WIN):
@@ -91,10 +97,16 @@ def build_macos():
         "--hidden-import", "tkinter.ttk",
         "--hidden-import", "tkinter.scrolledtext",
         "--hidden-import", "DrissionPage",
+        "--hidden-import", "pystray",
+        "--hidden-import", "PIL",
         "--clean",
         "--noconfirm",
         MAIN_SCRIPT
     ]
+
+    # 打包图标数据，供运行时托盘与窗口图标使用
+    if os.path.exists(ICON_WIN):
+        cmd.extend(["--add-data", f"{ICON_WIN}:."])
 
     # 如果有图标文件
     if os.path.exists(ICON_MAC):
@@ -124,10 +136,16 @@ def build_linux():
         "--hidden-import", "tkinter.ttk",
         "--hidden-import", "tkinter.scrolledtext",
         "--hidden-import", "DrissionPage",
+        "--hidden-import", "pystray",
+        "--hidden-import", "PIL",
         "--clean",
         "--noconfirm",
         MAIN_SCRIPT
     ]
+
+    # 打包图标数据，供运行时托盘与窗口图标使用
+    if os.path.exists(ICON_WIN):
+        cmd.extend(["--add-data", f"{ICON_WIN}:."])
 
     try:
         subprocess.run(cmd, check=True)

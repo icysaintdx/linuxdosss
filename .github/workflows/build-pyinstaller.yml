@@ -1,0 +1,158 @@
+name: Build with PyInstaller
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+      - master
+      - dev
+  pull_request:
+  workflow_dispatch:
+
+env:
+  APP_NAME: LinuxDoHelper
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-amd64
+            ext: ''
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+            ext: ''
+          - os: macos-15
+            platform: macos-arm64
+            ext: ''
+          - os: windows-2025
+            platform: windows-amd64
+            ext: '.exe'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME}"
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Install system deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tk tcl libgtk-3-0
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          pyinstaller --onefile --windowed --clean --noconfirm \
+            --name "${APP_NAME}" \
+            --hidden-import tkinter \
+            --hidden-import tkinter.ttk \
+            --hidden-import tkinter.scrolledtext \
+            --hidden-import DrissionPage \
+            --hidden-import pystray \
+            --hidden-import PIL \
+            --add-data "icon.ico:." \
+            linux_do_gui.py
+
+      - name: Build with PyInstaller (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          pyinstaller --onefile --windowed --clean --noconfirm `
+            --name "${env:APP_NAME}" `
+            --hidden-import tkinter `
+            --hidden-import tkinter.ttk `
+            --hidden-import tkinter.scrolledtext `
+            --hidden-import DrissionPage `
+            --hidden-import pystray `
+            --hidden-import PIL `
+            --add-data "icon.ico;." `
+            --icon icon.ico `
+            linux_do_gui.py
+
+      - name: Rename artifact (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mv "dist/${APP_NAME}" "dist/${APP_NAME}-pyinstaller-${{ steps.version.outputs.version }}-${{ matrix.platform }}"
+
+      - name: Rename artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Move-Item "dist\\${env:APP_NAME}.exe" "dist\\${env:APP_NAME}-pyinstaller-${{ steps.version.outputs.version }}-${{ matrix.platform }}${{ matrix.ext }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-pyinstaller-${{ steps.version.outputs.version }}-${{ matrix.platform }}${{ matrix.ext }}
+          path: dist/${{ env.APP_NAME }}-pyinstaller-${{ steps.version.outputs.version }}-${{ matrix.platform }}${{ matrix.ext }}
+          retention-days: 30
+
+  release:
+    name: Create Release (PyInstaller)
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Display artifacts
+        run: find artifacts/ -type f
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ env.APP_NAME }} ${{ github.ref_name }} (PyInstaller)
+          body: |
+            ## ${{ env.APP_NAME }} ${{ github.ref_name }} (PyInstaller Build)
+
+            ### Downloads
+            - Linux (x64): `${{ env.APP_NAME }}-pyinstaller-${{ github.ref_name }}-linux-amd64`
+            - Linux (ARM64): `${{ env.APP_NAME }}-pyinstaller-${{ github.ref_name }}-linux-arm64`
+            - macOS (Apple Silicon): `${{ env.APP_NAME }}-pyinstaller-${{ github.ref_name }}-macos-arm64`
+            - Windows (x64): `${{ env.APP_NAME }}-pyinstaller-${{ github.ref_name }}-windows-amd64.exe`
+
+            ### Build Info
+            - Builder: PyInstaller
+            - Python: ${{ env.PYTHON_VERSION }}
+          files: |
+            artifacts/**
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

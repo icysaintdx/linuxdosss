@@ -89,7 +89,7 @@
 #### 安装依赖
 
 ```bash
-pip install DrissionPage pystray pillow
+pip install -r requirements.txt
 ```
 
 #### 运行程序
@@ -165,7 +165,7 @@ python linux_do_gui.py
 
 ## 更新日志
 
-### v8.1 (2025-01-14)
+### v8.1 (2026-01-14)
 - 新增系统托盘功能，支持最小化到托盘
 - 新增托盘图标状态显示（就绪/运行中/已完成）
 - 新增托盘悬停提示，显示实时统计信息
@@ -196,20 +196,23 @@ python linux_do_gui.py
   由于 PyInstaller 不支持跨平台打包（Windows 上无法打包 macOS/Linux 版本），我创建了：
 
   1. build.py - 通用打包脚本，在对应系统上运行即可自动打包
-  2. BUILD_GUIDE.md - 详细的打包指南，包含：
+  2. docs/BUILD_GUIDE.md - 详细的打包指南，包含：
     - macOS 打包步骤
     - Linux 打包步骤
     - 环境准备命令
     - 常见问题解决
+  3. docs/Linux 环境安装指南.md - Linux 环境安装说明
 
 ### 在 macOS 上打包
 
-  pip3 install DrissionPage pyinstaller
+  pip3 install -r requirements.txt
+  pip3 install pyinstaller
   python3 build.py
 
 ### 在 Linux 上打包
 
-  pip3 install DrissionPage pyinstaller
+  pip3 install -r requirements.txt
+  pip3 install pyinstaller
   python3 build.py
 
 ### 项目文件结构
@@ -221,7 +224,11 @@ linuxdo/
 
 ├── README.md                 # 项目说明
 
-└── BUILD_GUIDE.md            # 打包指南
+├── requirements.txt          # 依赖列表
+
+└── docs/
+    ├── BUILD_GUIDE.md        # 打包指南
+    └── Linux 环境安装指南.md  # Linux 环境安装指南
 
 
 ## 技术栈

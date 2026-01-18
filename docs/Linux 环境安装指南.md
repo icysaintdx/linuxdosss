@@ -14,7 +14,7 @@ Linux 环境安装指南
 
   2. 安装 Python 依赖
 
-  pip3 install DrissionPage
+  pip3 install -r requirements.txt
 
   3. 安装 Chrome 浏览器
 
@@ -41,7 +41,7 @@ Linux 环境安装指南
   sudo apt install python3-tk
 
   Q: 提示 No module named 'DrissionPage'
-  pip3 install DrissionPage
+  pip3 install -r requirements.txt
 
   Q: 程序启动但浏览器打不开
   确保安装了 Chrome 浏览器：
