@@ -554,6 +554,7 @@ class Bot:
         """爬楼模式 - 使用楼层计数器跟踪进度
 
         quick_mode: 快速浏览模式，只爬3-5层就返回
+        返回值: 实际爬过的楼层数（结束楼层 - 开始楼层）
         """
         # 如果是快速浏览模式或者Bot设置为quick模式
         if quick_mode or s.browse_mode == "quick":
@@ -568,22 +569,23 @@ class Bot:
             return 0
 
         total_floors = floor_info["total"]
+        start_floor = floor_info["current"]  # 记录开始楼层
         s.lg(
-            f"帖子总楼层数: {total_floors} (来源: {floor_info.get('source', 'unknown')})"
+            f"帖子总楼层数: {total_floors}，开始楼层: {start_floor} (来源: {floor_info.get('source', 'unknown')})"
         )
 
         if total_floors < 10:
             s.lg(f"楼层数太少（{total_floors}），使用快速浏览")
             s._scroll_page_legacy(duration)
-            return total_floors
+            return max(0, total_floors - start_floor)
 
         scroll_count = 0
-        floors_read = 1  # 从第1楼开始（主帖）
-        last_floor = 1
+        current_floor = start_floor
+        last_floor = start_floor
         stuck_count = 0  # 楼层卡住计数
 
         # 开始爬楼
-        while floors_read < total_floors and s.run:
+        while current_floor < total_floors and s.run:
             # 等待阅读（2-4秒）
             wait_time = random.uniform(2, 4)
             time.sleep(wait_time)
@@ -600,14 +602,22 @@ class Bot:
             floor_info = s.get_floor_info()
             if floor_info:
                 current_floor = floor_info["current"]
-                floors_read = current_floor
 
                 if current_floor > last_floor:
+                    # 计算本次爬过的楼层数并累加到统计
+                    floors_climbed = current_floor - last_floor
+                    s.stats["floors"] += floors_climbed
+
                     s.lg(
-                        f"爬楼 #{scroll_count} → 当前: {current_floor}/{total_floors} 楼"
+                        f"爬楼 #{scroll_count} → 当前: {current_floor}/{total_floors} 楼 (本帖已爬 {current_floor - start_floor} 层)"
                     )
                     last_floor = current_floor
                     stuck_count = 0
+
+                    # 实时更新进度和倒计时
+                    if s.update_progress:
+                        s.update_progress(s.stats)
+                    s._update_countdown_display()
                 else:
                     stuck_count += 1
 
@@ -623,32 +633,49 @@ class Bot:
                 s.lg("达到最大滚动次数，停止爬楼")
                 break
 
-        s.lg(f"爬楼完成: 滚动 {scroll_count} 次，读取 {floors_read}/{total_floors} 楼")
-        return floors_read
+        # 计算实际爬过的楼层数
+        floors_climbed_total = current_floor - start_floor
+        s.lg(
+            f"爬楼完成: 滚动 {scroll_count} 次，从 {start_floor} 爬到 {current_floor}，共爬 {floors_climbed_total} 层"
+        )
+        return floors_climbed_total
 
     def _scroll_page_quick(s):
-        """快速浏览模式 - 只爬3-5层就返回，用于增加浏览话题数量"""
+        """快速浏览模式 - 只爬3-5层就返回，用于增加浏览话题数量
+        返回值: 实际爬过的楼层数（结束楼层 - 开始楼层）
+        """
         floor_info = s.get_floor_info()
         if not floor_info:
             s.lg("⚠ 无法获取楼层信息，快速滚动3次")
-            # 快速滚动3次
+            # 快速滚动3次，假设爬了3层
             for i in range(3):
                 if not s.run:
                     break
                 time.sleep(random.uniform(1, 2))
                 s.pg.run_js(f"window.scrollBy(0, {random.randint(400, 800)})")
+            s.stats["floors"] += 3
+            if s.update_progress:
+                s.update_progress(s.stats)
+            s._update_countdown_display()
             return 3
 
         total_floors = floor_info["total"]
-        target_floors = random.randint(3, 5)  # 目标爬3-5层
+        start_floor = floor_info["current"]  # 记录开始楼层
+        target_climb = random.randint(3, 5)  # 目标爬3-5层
 
-        s.lg(f"[快速浏览] 目标: {target_floors} 层 (总楼层: {total_floors})")
+        s.lg(
+            f"[快速浏览] 开始楼层: {start_floor}，目标爬: {target_climb} 层 (总楼层: {total_floors})"
+        )
 
         scroll_count = 0
-        floors_read = 1
-        last_floor = 1
+        current_floor = start_floor
+        last_floor = start_floor
 
-        while floors_read < min(target_floors + 1, total_floors) and s.run:
+        while (
+            (current_floor - start_floor) < target_climb
+            and current_floor < total_floors
+            and s.run
+        ):
             # 快速等待（1-2秒）
             time.sleep(random.uniform(1, 2))
 
@@ -663,16 +690,26 @@ class Bot:
             floor_info = s.get_floor_info()
             if floor_info:
                 current_floor = floor_info["current"]
-                floors_read = current_floor
                 if current_floor > last_floor:
+                    # 计算本次爬过的楼层数并累加
+                    floors_climbed = current_floor - last_floor
+                    s.stats["floors"] += floors_climbed
                     last_floor = current_floor
+
+                    # 实时更新进度和倒计时
+                    if s.update_progress:
+                        s.update_progress(s.stats)
+                    s._update_countdown_display()
 
             # 安全检查
             if scroll_count >= 10:
                 break
 
-        s.lg(f"[快速浏览] 完成: 读取 {floors_read} 层")
-        return floors_read
+        floors_climbed_total = current_floor - start_floor
+        s.lg(
+            f"[快速浏览] 完成: 从 {start_floor} 爬到 {current_floor}，共爬 {floors_climbed_total} 层"
+        )
+        return floors_climbed_total
 
     def _scroll_page_legacy(s, duration=None):
         """传统滚动模式 - 用于无法获取楼层信息的情况"""
@@ -818,16 +855,10 @@ class Bot:
                 s.update_progress(s.stats)
 
             # 更新倒计时
-            if s.update_countdown and s.start_time:
-                s._update_countdown_display()
+            s._update_countdown_display()
 
-            # 爬楼阅读（返回读取的楼层数）
-            floors_read = s.scroll_page()
-
-            # 统计爬楼数
-            if "floors" not in s.stats:
-                s.stats["floors"] = 0
-            s.stats["floors"] += floors_read
+            # 爬楼阅读（scroll_page内部会实时更新stats["floors"]和进度）
+            s.scroll_page()
 
             s._random_delay(1, 2, "阅读后")
 
