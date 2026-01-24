@@ -12,10 +12,11 @@ import platform
 
 # 项目信息
 APP_NAME = "LinuxDoHelper"
-APP_VERSION = "8.2"
+APP_VERSION = "8.3"
 MAIN_SCRIPT = "linux_do_gui.py"
 ICON_WIN = "icon.ico"  # Windows图标
 ICON_MAC = "icon.icns"  # macOS图标
+
 
 def get_platform():
     """获取当前平台"""
@@ -27,6 +28,7 @@ def get_platform():
     elif system == "linux":
         return "linux"
     return system
+
 
 def clean_build():
     """清理构建目录"""
@@ -42,6 +44,7 @@ def clean_build():
             os.remove(f)
             print(f"已清理: {f}")
 
+
 def build_windows():
     """打包 Windows exe"""
     print("\n" + "=" * 50)
@@ -52,20 +55,34 @@ def build_windows():
         "pyinstaller",
         "--onefile",
         "--windowed",
-        "--name", f"{APP_NAME}_v{APP_VERSION}_Windows",
-        "--add-data", f"{MAIN_SCRIPT};.",
-        "--hidden-import", "tkinter",
-        "--hidden-import", "tkinter.ttk",
-        "--hidden-import", "tkinter.scrolledtext",
-        "--hidden-import", "DrissionPage",
+        "--name",
+        f"{APP_NAME}_v{APP_VERSION}_Windows",
+        "--hidden-import",
+        "tkinter",
+        "--hidden-import",
+        "tkinter.ttk",
+        "--hidden-import",
+        "tkinter.scrolledtext",
+        "--hidden-import",
+        "DrissionPage",
+        "--hidden-import",
+        "pystray",
+        "--hidden-import",
+        "PIL",
+        "--hidden-import",
+        "PIL.Image",
+        "--hidden-import",
+        "PIL.ImageDraw",
         "--clean",
         "--noconfirm",
-        MAIN_SCRIPT
     ]
 
-    # 如果有图标文件
+    # 打包图标数据，供运行时托盘与窗口图标使用，并设置应用图标
     if os.path.exists(ICON_WIN):
+        cmd.extend(["--add-data", f"{ICON_WIN};."])
         cmd.extend(["--icon", ICON_WIN])
+
+    cmd.append(MAIN_SCRIPT)
 
     try:
         subprocess.run(cmd, check=True)
@@ -75,6 +92,7 @@ def build_windows():
     except subprocess.CalledProcessError as e:
         print(f"打包失败: {e}")
         return False
+
 
 def build_macos():
     """打包 macOS app"""
@@ -86,19 +104,35 @@ def build_macos():
         "pyinstaller",
         "--onefile",
         "--windowed",
-        "--name", f"{APP_NAME}_v{APP_VERSION}_macOS",
-        "--hidden-import", "tkinter",
-        "--hidden-import", "tkinter.ttk",
-        "--hidden-import", "tkinter.scrolledtext",
-        "--hidden-import", "DrissionPage",
+        "--name",
+        f"{APP_NAME}_v{APP_VERSION}_macOS",
+        "--hidden-import",
+        "tkinter",
+        "--hidden-import",
+        "tkinter.ttk",
+        "--hidden-import",
+        "tkinter.scrolledtext",
+        "--hidden-import",
+        "DrissionPage",
+        "--hidden-import",
+        "pystray",
+        "--hidden-import",
+        "PIL",
+        "--hidden-import",
+        "PIL.Image",
+        "--hidden-import",
+        "PIL.ImageDraw",
         "--clean",
         "--noconfirm",
-        MAIN_SCRIPT
     ]
 
-    # 如果有图标文件
+    # 打包图标数据，供运行时托盘与窗口图标使用，并设置应用图标
+    if os.path.exists(ICON_WIN):
+        cmd.extend(["--add-data", f"{ICON_WIN}:."])
     if os.path.exists(ICON_MAC):
         cmd.extend(["--icon", ICON_MAC])
+
+    cmd.append(MAIN_SCRIPT)
 
     try:
         subprocess.run(cmd, check=True)
@@ -108,6 +142,7 @@ def build_macos():
     except subprocess.CalledProcessError as e:
         print(f"打包失败: {e}")
         return False
+
 
 def build_linux():
     """打包 Linux 版本"""
@@ -119,15 +154,33 @@ def build_linux():
         "pyinstaller",
         "--onefile",
         "--windowed",
-        "--name", f"{APP_NAME}_v{APP_VERSION}_Linux",
-        "--hidden-import", "tkinter",
-        "--hidden-import", "tkinter.ttk",
-        "--hidden-import", "tkinter.scrolledtext",
-        "--hidden-import", "DrissionPage",
+        "--name",
+        f"{APP_NAME}_v{APP_VERSION}_Linux",
+        "--hidden-import",
+        "tkinter",
+        "--hidden-import",
+        "tkinter.ttk",
+        "--hidden-import",
+        "tkinter.scrolledtext",
+        "--hidden-import",
+        "DrissionPage",
+        "--hidden-import",
+        "pystray",
+        "--hidden-import",
+        "PIL",
+        "--hidden-import",
+        "PIL.Image",
+        "--hidden-import",
+        "PIL.ImageDraw",
         "--clean",
         "--noconfirm",
-        MAIN_SCRIPT
     ]
+
+    # 打包图标数据，供运行时托盘与窗口图标使用
+    if os.path.exists(ICON_WIN):
+        cmd.extend(["--add-data", f"{ICON_WIN}:."])
+
+    cmd.append(MAIN_SCRIPT)
 
     try:
         subprocess.run(cmd, check=True)
@@ -137,6 +190,7 @@ def build_linux():
     except subprocess.CalledProcessError as e:
         print(f"打包失败: {e}")
         return False
+
 
 def main():
     """主函数"""
@@ -177,6 +231,7 @@ def main():
     else:
         print("\n打包失败，请检查错误信息")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
