@@ -27,9 +27,12 @@ jobs:
           - os: ubuntu-latest
             platform: Linux
             artifact_name: LinuxDoHelper_Linux
-          - os: macos-latest
-            platform: macOS
-            artifact_name: LinuxDoHelper_macOS
+          - os: macos-13
+            platform: macOS-Intel
+            artifact_name: LinuxDoHelper_macOS_Intel
+          - os: macos-14
+            platform: macOS-ARM
+            artifact_name: LinuxDoHelper_macOS_ARM
           - os: windows-latest
             platform: Windows
             artifact_name: LinuxDoHelper_Windows
@@ -81,8 +84,18 @@ jobs:
             --clean --noconfirm \
             linux_do_gui.py
 
-      - name: Package macOS app as DMG
-        if: matrix.platform == 'macOS'
+      - name: Package macOS app as DMG (Intel)
+        if: matrix.platform == 'macOS-Intel'
+        run: |
+          cd dist
+          mkdir -p dmg_contents
+          mv ${{ matrix.artifact_name }}.app dmg_contents/
+          ln -s /Applications dmg_contents/Applications
+          hdiutil create -volname "${{ matrix.artifact_name }}" -srcfolder dmg_contents -ov -format UDZO ${{ matrix.artifact_name }}.dmg
+          rm -rf dmg_contents
+
+      - name: Package macOS app as DMG (ARM)
+        if: matrix.platform == 'macOS-ARM'
         run: |
           cd dist
           mkdir -p dmg_contents
