@@ -410,14 +410,98 @@ class Bot:
                 time.sleep(4)
 
             info = s.pg.run_js("""
-            function getLevelInfo() {
-                const result = {
-                    username: '',
-                    level: '',
-                    nextLevel: '',
-                    requirements: []
+            function normalizeText(text) {
+                return (text || '').replace(/\\s+/g, ' ').trim();
+            }
+
+            function parseSlashNumbers(text) {
+                const normalized = normalizeText(text);
+                const match = normalized.match(/(-?[\\d,]+)\\s*\\/\\s*(-?[\\d,]+)/);
+                if (!match) {
+                    return null;
+                }
+                return {
+                    current: match[1],
+                    required: match[2]
                 };
-                
+            }
+
+            function pushRequirement(result, name, current, required) {
+                const normalizedName = normalizeText(name);
+                const normalizedCurrent = normalizeText(current);
+                const normalizedRequired = normalizeText(required);
+
+                if (!normalizedName || normalizedCurrent === '' || normalizedRequired === '') {
+                    return;
+                }
+
+                const exists = result.requirements.some(item => item.name === normalizedName);
+                if (!exists) {
+                    result.requirements.push({
+                        name: normalizedName,
+                        current: normalizedCurrent,
+                        required: normalizedRequired
+                    });
+                }
+            }
+
+            function parseNewLayout(result) {
+                const userInfo = document.querySelector('.user-menu-info');
+                if (userInfo) {
+                    const nameEl = userInfo.querySelector('.font-semibold');
+                    if (nameEl) {
+                        result.username = normalizeText(nameEl.textContent);
+                    }
+
+                    const infoText = normalizeText(userInfo.textContent);
+                    const levelMatch = infoText.match(/信任级别\\s*(\\d+)/);
+                    if (levelMatch) {
+                        result.level = levelMatch[1];
+                    }
+                }
+
+                const cardTitle = document.querySelector('.card-title');
+                if (cardTitle) {
+                    const titleText = normalizeText(cardTitle.textContent);
+                    const nextLevelMatch = titleText.match(/信任级别\\s*(\\d+)/);
+                    if (nextLevelMatch) {
+                        result.nextLevel = nextLevelMatch[1];
+                    }
+                }
+
+                document.querySelectorAll('.tl3-ring').forEach(ring => {
+                    const name = ring.querySelector('.tl3-ring-label')?.textContent;
+                    const current = ring.querySelector('.tl3-ring-current')?.textContent;
+                    const targetText = normalizeText(ring.querySelector('.tl3-ring-target')?.textContent || '');
+                    const required = targetText.replace(/^\\/\\s*/, '');
+                    pushRequirement(result, name, current, required);
+                });
+
+                document.querySelectorAll('.tl3-bar-item').forEach(item => {
+                    const name = item.querySelector('.tl3-bar-label')?.textContent;
+                    const nums = parseSlashNumbers(item.querySelector('.tl3-bar-nums')?.textContent || '');
+                    if (nums) {
+                        pushRequirement(result, name, nums.current, nums.required);
+                    }
+                });
+
+                document.querySelectorAll('.tl3-quota-card').forEach(card => {
+                    const name = card.querySelector('.tl3-quota-label')?.textContent;
+                    const nums = parseSlashNumbers(card.querySelector('.tl3-quota-nums')?.textContent || '');
+                    if (nums) {
+                        pushRequirement(result, name, nums.current, nums.required);
+                    }
+                });
+
+                document.querySelectorAll('.tl3-veto-item').forEach(item => {
+                    const front = item.querySelector('.tl3-veto-front') || item;
+                    const name = front.querySelector('.tl3-veto-label')?.textContent;
+                    const current = front.querySelector('.tl3-veto-value')?.textContent;
+                    pushRequirement(result, name, current, '0');
+                });
+            }
+
+            function parseLegacyLayout(result) {
                 // 获取用户名和等级
                 const h1 = document.querySelector('h1');
                 if (h1) {
@@ -428,7 +512,7 @@ class Bot:
                         result.level = match[2];
                     }
                 }
-                
+
                 // 获取下一级要求
                 const h2s = document.querySelectorAll('h2');
                 h2s.forEach(h2 => {
@@ -440,7 +524,7 @@ class Bot:
                         }
                     }
                 });
-                
+
                 // 获取升级要求表格
                 const tables = document.querySelectorAll('table');
                 tables.forEach(table => {
@@ -448,20 +532,36 @@ class Bot:
                     rows.forEach(row => {
                         const cells = row.querySelectorAll('td');
                         if (cells.length >= 3) {
-                            const name = cells[0].textContent.trim();
-                            const current = cells[1].textContent.trim();
-                            const required = cells[2].textContent.trim();
-                            if (name && current && required && name !== '要求') {
-                                result.requirements.push({
-                                    name: name,
-                                    current: current,
-                                    required: required
-                                });
-                            }
+                            pushRequirement(
+                                result,
+                                cells[0].textContent,
+                                cells[1].textContent,
+                                cells[2].textContent
+                            );
                         }
                     });
                 });
-                
+            }
+
+            function getLevelInfo() {
+                const result = {
+                    username: '',
+                    level: '',
+                    nextLevel: '',
+                    requirements: []
+                };
+
+                parseNewLayout(result);
+
+                if (
+                    !result.username ||
+                    !result.level ||
+                    !result.nextLevel ||
+                    result.requirements.length === 0
+                ) {
+                    parseLegacyLayout(result);
+                }
+
                 return result;
             }
             return getLevelInfo();
@@ -475,7 +575,7 @@ class Bot:
                     s.lg("下一级: " + info.get("nextLevel") + "级")
                 if info.get("requirements"):
                     s.lg("升级要求:")
-                    for req in info["requirements"][:8]:
+                    for req in info["requirements"]:
                         s.lg(
                             "  "
                             + req["name"]
@@ -741,6 +841,7 @@ class Bot:
 
             # 滚动页面
             scroll_distance = random.randint(400, 800)
+
             s.pg.run_js(f"window.scrollBy(0, {scroll_distance})")
             scroll_count += 1
 
@@ -895,18 +996,138 @@ class Bot:
             s.lg("回复失败: " + str(e))
         return False
 
+    def _normalize_topic_path(s, url):
+        """标准化帖子路径，便于在列表页和详情页之间比对。"""
+        if not url:
+            return ""
+
+        path = str(url).strip()
+        if "://" in path:
+            path = path.split("://", 1)[1]
+            slash_index = path.find("/")
+            path = path[slash_index:] if slash_index >= 0 else "/"
+
+        path = path.split("#", 1)[0].split("?", 1)[0]
+        if not path.startswith("/"):
+            path = "/" + path
+        return path.rstrip("/") or "/"
+
+    def _wait_for_topic_list(s, timeout=10):
+        """等待帖子列表页恢复。"""
+        deadline = time.time() + timeout
+        while s.run and time.time() < deadline:
+            try:
+                is_list_page = s.pg.run_js("""
+                return !!document.querySelector('tr.topic-list-item');
+                """)
+                if is_list_page:
+                    return True
+            except:
+                pass
+            time.sleep(0.5)
+        return False
+
+    def _wait_for_topic_page(s, topic, timeout=10):
+        """等待帖子详情页加载完成。"""
+        expected_path = s._normalize_topic_path(topic.get("url"))
+        deadline = time.time() + timeout
+
+        while s.run and time.time() < deadline:
+            try:
+                state = s.pg.run_js("""
+                return {
+                    href: window.location.href,
+                    pathname: window.location.pathname,
+                    isTopic: !!document.querySelector('#topic-title, #topic-progress, .topic-post')
+                };
+                """)
+                if state and state.get("isTopic"):
+                    current_path = s._normalize_topic_path(
+                        state.get("pathname") or state.get("href")
+                    )
+                    if not expected_path or current_path == expected_path:
+                        return True
+            except:
+                pass
+            time.sleep(0.5)
+
+        return False
+
+    def _click_topic_from_list(s, topic):
+        """在当前列表页里点击帖子标题进入详情页。"""
+        topic_id = json.dumps(str(topic.get("id") or ""))
+        topic_url = json.dumps(topic.get("url") or "")
+        topic_title = json.dumps(topic.get("title") or "")
+        clicked = s.pg.run_js(f"""
+        function normalizeTopicUrl(url) {{
+            if (!url) return '';
+            try {{
+                const parsed = new URL(url, window.location.origin);
+                return parsed.pathname.replace(/\\/+$/, '') || '/';
+            }} catch (e) {{
+                return String(url).split('#')[0].split('?')[0].replace(/\\/+$/, '') || '/';
+            }}
+        }}
+
+        function clickTopicFromList() {{
+            const topicId = {topic_id};
+            const topicUrl = {topic_url};
+            const topicTitle = {topic_title};
+            let row = null;
+            if (topicId) {{
+                row = document.querySelector(`tr.topic-list-item[data-topic-id="${{topicId}}"]`);
+            }}
+
+            let link = row ? row.querySelector('a.title.raw-link.raw-topic-link') : null;
+            if (!link) {{
+                const targetPath = normalizeTopicUrl(topicUrl);
+                const links = Array.from(document.querySelectorAll('tr.topic-list-item a.title.raw-link.raw-topic-link'));
+                link = links.find(item => normalizeTopicUrl(item.getAttribute('href')) === targetPath);
+                if (!link && topicTitle) {{
+                    link = links.find(item => item.textContent.trim() === topicTitle);
+                }}
+            }}
+
+            if (!link) {{
+                return false;
+            }}
+
+            link.removeAttribute('target');
+            link.target = '_self';
+            link.scrollIntoView({{behavior: 'auto', block: 'center'}});
+            link.click();
+            return true;
+        }}
+
+        return clickTopicFromList();
+        """)
+        return bool(clicked)
+
+    def _return_to_topic_list(s):
+        """从帖子详情页返回当前分类的列表页。"""
+        try:
+            s.pg.run_js("window.history.back();")
+        except Exception as e:
+            s.lg("返回列表失败: " + str(e))
+            return False
+        return s._wait_for_topic_list()
+
     def browse_topic(s, topic):
         """浏览帖子"""
-        url = (
-            s.cfg["base"] + topic["url"]
-            if topic["url"].startswith("/")
-            else topic["url"]
-        )
         title = topic["title"]
+        entered_topic = False
 
         s.lg("浏览: " + title)
         try:
-            s.pg.get(url)
+            if not s._click_topic_from_list(topic):
+                s.lg("未能在当前列表页找到帖子入口")
+                return False
+
+            if not s._wait_for_topic_page(topic):
+                s.lg("进入帖子超时")
+                return False
+
+            entered_topic = True
             s._random_delay(2, 4, "帖子加载")
             s.stats["topic"] += 1
 
@@ -958,6 +1179,11 @@ class Bot:
         except Exception as e:
             s.lg("浏览失败: " + str(e))
             return False
+        finally:
+            if entered_topic and s.run:
+                if not s._return_to_topic_list():
+                    s.lg("返回帖子列表失败，停止运行避免误操作")
+                    s.run = False
 
     def _update_countdown_display(s):
         """更新倒计时显示"""
@@ -2083,7 +2309,7 @@ class GUI:
             ).grid(row=0, column=col, padx=col_padx[col], pady=5, sticky="w")
 
         # 创建数据行
-        for row, req in enumerate(requirements[:8], start=1):
+        for row, req in enumerate(requirements, start=1):
             name = req.get("name", "")
             current = req.get("current", "0")
             required = req.get("required", "0")
@@ -2147,6 +2373,25 @@ class GUI:
                 "added_var": added_var,
             }
 
+    def _get_estimated_metric_delta(s, name, stats):
+        """根据指标名推断本次运行可能带来的变化量。"""
+        likes = stats.get("like", 0) + stats.get("like_reply", 0)
+
+        if "浏览话题" in name:
+            return stats.get("topic", 0)
+        if "浏览帖子" in name:
+            return stats.get("floors", 0)
+        if "已读帖子" in name:
+            return stats.get("topic", 0) + stats.get("floors", 0)
+        if "回复话题" in name or "回复帖子" in name or "发帖" in name:
+            return stats.get("reply", 0)
+        if "获赞" in name or "访问天数" in name or "举报" in name or "禁言" in name or "封禁" in name:
+            return None
+        if "点赞" in name or (name == "赞"):
+            return likes
+
+        return None
+
     def _update_progress(s, stats):
         """根据统计更新进度显示"""
 
@@ -2158,18 +2403,9 @@ class GUI:
             for name, labels in s.req_labels.items():
                 try:
                     initial = int(labels["initial"].replace(",", ""))
-                    added = 0
+                    added = s._get_estimated_metric_delta(name, stats)
 
-                    # 根据指标名匹配统计
-                    name_lower = name.lower()
-                    if "浏览" in name or "阅读" in name or "话题" in name:
-                        added = stats.get("topic", 0)
-                    elif "点赞" in name or "赞" in name:
-                        added = stats.get("like", 0) + stats.get("like_reply", 0)
-                    elif "回复" in name or "发帖" in name:
-                        added = stats.get("reply", 0)
-
-                    if added > 0:
+                    if added is not None and added > 0:
                         new_val = initial + added
                         labels["current_var"].set(str(new_val))
                         labels["added_var"].set(f"+{added}")
