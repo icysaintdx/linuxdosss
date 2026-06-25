@@ -91,6 +91,31 @@ def get_icon_path():
     return os.path.join(base_path, "icon.ico")
 
 
+def get_chromium_path():
+    """获取 Chromium 系浏览器可执行文件路径。"""
+    if platform.system() == "Darwin":
+        candidates = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            os.path.expanduser(
+                "~/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+            ),
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            os.path.expanduser("~/Applications/Chromium.app/Contents/MacOS/Chromium"),
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            os.path.expanduser(
+                "~/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"
+            ),
+            "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+            os.path.expanduser(
+                "~/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
+            ),
+        ]
+        for path in candidates:
+            if os.path.exists(path) and os.access(path, os.X_OK):
+                return path
+    return None
+
+
 def create_tray_image(color="#0f3460"):
     """创建托盘图标图像"""
     size = 64
@@ -140,7 +165,7 @@ CATS = [
 ]
 
 CFG = {
-    "proxy": "127.0.0.1:7897",
+    "proxy": "",
     "base": "https://linux.do",
     "connect": "https://connect.linux.do",
     "like_rate": 0.3,
@@ -289,6 +314,11 @@ class Bot:
             try:
                 co = ChromiumOptions()
 
+                browser_path = get_chromium_path()
+                if browser_path:
+                    co.set_browser_path(browser_path)
+                    s.lg(f"使用浏览器: {browser_path}")
+
                 # 设置用户数据目录
                 user_data_dir = os.path.join(os.getcwd(), "browser_data")
                 co.set_user_data_path(user_data_dir)
@@ -297,12 +327,8 @@ class Bot:
                     co.set_proxy(s.cfg["proxy"])
                 co.set_argument("--disable-blink-features=AutomationControlled")
 
-                # 设置浏览器窗口大小为屏幕高度
-                import tkinter as tk
-
-                root = tk.Tk()
-                screen_height = root.winfo_screenheight()
-                root.destroy()
+                # 设置浏览器窗口大小。屏幕高度由 GUI 主线程提供，避免在后台线程创建 Tk 对象。
+                screen_height = s.cfg.get("screen_height", 900)
 
                 # 设置窗口大小：宽度1200，高度为屏幕高度
                 co.set_argument(f"--window-size=1200,{screen_height}")
@@ -2396,6 +2422,7 @@ class GUI:
             s.cfg["wait_max"] = float(parts[1]) if len(parts) > 1 else float(parts[0])
         except:
             s.cfg["wait_min"], s.cfg["wait_max"] = 1, 3
+        s.cfg["screen_height"] = s.rt.winfo_screenheight()
 
         s.start_btn.config(state=tk.DISABLED)
         s.stop_btn.config(state=tk.NORMAL)
@@ -2448,6 +2475,8 @@ class GUI:
     def _run(s):
         try:
             s.bot.run_session()
+        except Exception as e:
+            s._lg(f"运行异常: {e}")
         finally:
             s.rt.after(0, s._done)
 
