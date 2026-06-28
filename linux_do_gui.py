@@ -1,17 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Linux.do 论坛刷帖助手 v8.4
-功能：
-1. 自动获取用户等级和升级进度
-2. 多板块浏览
-3. 随机点赞帖子和回复
-4. 随机回帖
-5. 统计报告
-6. 防风控机制（随机间隔）
-7. 升级进度实时追踪
-8. 系统托盘支持
-9. 快速浏览模式（增加浏览话题数）
-10. 真实进度变化统计
+Linux.do 论坛刷帖助手
+- 多板块浏览、点赞、回帖（模板或 AI 动态生成）
+- 等级/升级进度、防风控随机间隔、系统托盘
 """
 
 import sys, os, random, time, json, threading
@@ -91,6 +82,50 @@ def get_icon_path():
     return os.path.join(base_path, "icon.ico")
 
 
+def _app_dir():
+    """程序数据目录（config、browser_data 放这里；exe 与脚本行为一致）"""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def normalize_proxy(proxy):
+    """Chrome --proxy-server 需要 scheme，如 http://127.0.0.1:7897"""
+    p = (proxy or "").strip()
+    if not p:
+        return ""
+    if "://" not in p:
+        p = "http://" + p
+    return p
+
+
+def normalize_anthropic_base_url(url):
+    """Anthropic SDK 的 base_url 应为 …/v1，请求路径由 SDK 追加 /messages。
+
+    网关若写成 /v1/responses、/v1/messages 等，会导致 404。
+    """
+    u = (url or "").strip().rstrip("/")
+    if not u:
+        return ""
+    for suffix in (
+        "/v1/messages",
+        "/v1/responses",
+        "/v1/chat/completions",
+        "/chat/completions",
+        "/responses",
+    ):
+        if u.endswith(suffix):
+            u = u[: -len(suffix)].rstrip("/")
+            break
+    if u.endswith("/v1"):
+        return u
+    if "/v1/" in u or u.endswith("/v1"):
+        # 只保留到 /v1
+        i = u.find("/v1")
+        return u[: i + 3]
+    return u + "/v1"
+
+
 def create_tray_image(color="#0f3460"):
     """创建托盘图标图像"""
     size = 64
@@ -150,81 +185,273 @@ CFG = {
     "wait_min": 1,
     "wait_max": 3,
     "tpl": [
+        # 注意：L站要求回复不少于 16 字，以下模板均已满足该长度要求
         # 感谢类
-        "感谢分享！学习了",
-        "感谢楼主的分享",
-        "感谢分享，很有帮助",
-        "感谢大佬的分享",
-        "感谢楼主无私分享",
-        "感谢分享，收藏学习",
-        "感谢楼主，学到了",
-        "感谢分享，受益匪浅",
+        "感谢楼主的无私分享，内容很实用，已经收藏学习了",
+        "非常感谢楼主分享这么好的内容，对我帮助真的很大",
+        "感谢楼主花时间整理分享，让我学到了不少新东西",
+        "谢谢楼主的精心分享，这正是我一直在找的内容啊",
+        "感谢分享，这些内容总结得很到位，看完受益匪浅",
+        "感谢楼主慷慨分享好东西，这下省了我不少的功夫",
+        "谢谢楼主分享，正好最近需要，真是雪中送炭啊",
+        "感谢楼主一直无私分享，每次来都能有满满的收获",
         # 学习类
-        "学习了，谢谢楼主！",
-        "学到了新知识，感谢",
-        "涨知识了，谢谢分享",
-        "学习学习，感谢大佬",
-        "又学到了，感谢楼主",
-        "学习一下，感谢分享",
-        "认真学习中，感谢",
-        "好好学习天天向上",
+        "认真学习了楼主分享的内容，确实涨了不少的知识",
+        "跟着楼主的思路学习了一遍，感觉收获真的很满满",
+        "默默把楼主的干货学习收藏了，感谢这么用心整理",
+        "又涨知识了，楼主分享的内容值得反复学习和琢磨",
+        "学习了楼主的经验分享，以后遇到问题就不慌了呢",
+        "好好跟着楼主学习一下，这内容对新手太友好了",
+        "认真做了笔记，楼主讲的内容条理清晰很好理解",
+        "学到了新姿势，感谢楼主把经验毫无保留地分享",
         # 支持类
-        "支持一下，感谢分享",
-        "支持楼主，继续加油",
-        "必须支持，感谢分享",
-        "大力支持，感谢楼主",
-        "支持支持，学习了",
-        "强烈支持，感谢分享",
+        "必须支持一下楼主，这么优质的内容真的值得点赞",
+        "大力支持楼主的分享，希望以后能多发这类的好帖",
+        "默默支持楼主原创，期待后续能有更多精彩的更新",
+        "支持楼主继续创作，这样用心的好内容真的不多见",
+        "为楼主的无私分享点赞支持，辛苦啦感谢用心分享",
+        "顶起来支持楼主，好内容不应该就这样沉下去了",
         # 收藏类
-        "好文章，收藏了",
-        "收藏了，感谢分享",
-        "先收藏，慢慢学习",
-        "收藏学习，感谢楼主",
-        "马克一下，感谢分享",
-        "mark一下，以后学习",
-        "先马后看，感谢分享",
+        "果断收藏了楼主的好帖，留着以后慢慢研究和学习",
+        "先收藏起来码住，这内容以后肯定能用得上的呢",
+        "已经收藏到我的清单里了，感谢楼主的精心整理",
+        "这么好的资源必须收藏，谢谢楼主这么无私的分享",
+        "收藏学习了，楼主整理的内容真的是太全面了啊",
+        "马克一下慢慢消化，感谢楼主分享这么干货的内容",
         # 赞美类
-        "不错不错，学习了",
-        "写得很好，感谢分享",
-        "内容很棒，感谢楼主",
-        "干货满满，感谢分享",
-        "质量很高，感谢楼主",
-        "很有价值，感谢分享",
-        "非常实用，感谢楼主",
-        "很有帮助，感谢分享",
+        "楼主写得太详细了，思路清晰，学起来特别的轻松",
+        "内容质量很高，看得出楼主花了不少的心思去整理",
+        "这篇帖子干货满满，讲解清楚，真的是非常的实用",
+        "楼主整理得太用心了，条理清晰，一看就明白了啊",
+        "这内容写得真不错，逻辑清楚，对新手特别的友好",
+        "讲解得很清晰透彻，看完整个思路一下子就通了",
         # 前排类
-        "前排围观，感谢分享",
-        "前排学习，感谢楼主",
-        "前排支持，感谢分享",
-        "前排关注，学习了",
-        "前排占座，感谢分享",
+        "前排围观支持楼主，这么好的内容必须得顶一下啊",
+        "抢个前排留名，感谢楼主分享这么实用的好内容呢",
+        "前排占座学习，楼主的分享每次都能让人有收获",
+        "前排支持一波，希望楼主以后多分享这类的好帖子",
         # 佬类
-        "谢谢佬，学习了",
-        "感谢佬的分享",
-        "佬太强了，学习了",
-        "跟着佬学习一下",
-        "佬就是佬，感谢分享",
-        "大佬牛逼，学习了",
-        "膜拜大佬，感谢分享",
-        # 其他
-        "路过学习，感谢分享",
-        "围观学习，感谢楼主",
-        "来学习一下，感谢",
-        "看看学习，感谢分享",
-        "顶一下，感谢分享",
-        "顶顶顶，感谢楼主",
-        "帮顶一下，感谢分享",
-        "好帖必顶，感谢楼主",
-        "精华帖子，感谢分享",
-        "优质内容，感谢楼主",
-        "实用干货，感谢分享",
-        "很有意思，感谢楼主",
-        "长见识了，感谢分享",
-        "开眼界了，感谢楼主",
-        "受教了，感谢分享",
-        "茅塞顿开，感谢楼主",
+        "佬就是佬，分享的内容总是这么有深度，学习到了",
+        "感谢佬的精彩分享，跟着佬总能学到不少的好东西",
+        "蹲一个佬的后续更新，佬的内容向来都是精品啊",
+        "佬太强了，这波分享干货十足，受教啦感谢分享",
+        "膜拜大佬，每次看佬的帖子都有新收获和新的启发",
+        # 其他/共鸣类
+        "正好最近用得上，感谢楼主及时分享了这些内容",
+        "看完楼主的帖子很有收获，解决了我不少的疑惑",
+        "这波分享真的很到位，楼主辛苦啦感谢用心的整理",
+        "终于找到想要的内容了，真是太感谢楼主的分享啦",
+        "好帖不能沉，帮楼主顶一下，内容真的非常的实用",
+        "留个脚印方便以后回看，感谢楼主分享精彩的内容",
+        "原来还可以这样操作，学到了，感谢楼主的分享啊",
+        "细细读完楼主的分享，干货确实多，收藏起来学习",
+        "这内容总结得太全面了，省了我不少摸索的时间呢",
+        "楼主分享的经验很宝贵，对我的帮助真的非常大啊",
+        "好东西就要顶起来，感谢楼主无私分享这些干货",
+        "看完很有启发，楼主的分享总是能带来新的思路",
     ],
+    # AI 智能回复（Anthropic 原生 /v1/messages 格式，支持自定义 URL + key）
+    "ai_enabled": False,
+    "ai_url": "https://api.anthropic.com",
+    "ai_key": "",
+    "ai_model": "claude-opus-4-8",
+    "ai_use_custom_prompt": False,
+    "ai_system_prompt": "",
 }
+
+# L站回帖最低字数；AI 与模板均需满足
+MIN_REPLY_CHARS = 16
+MAX_REPLY_CHARS = 48
+
+# AI 默认系统提示词（可在界面勾选「自定义」覆盖）
+DEFAULT_AI_SYSTEM_PROMPT = """你是 Linux.do（L站）的一名普通老用户，刷帖时偶尔会回一句。
+
+根据用户提供的「标题 + 主帖 + 部分楼层」，写一条回帖正文。
+
+硬性要求：
+1. 只输出回复正文，不要前缀、不要解释你在做什么。
+2. 长度 16～45 个汉字（L站有最低字数），不要写成长段落。
+3. 必须贴合帖子里的具体内容（话题、观点、问题、方案至少沾一点），禁止空洞套话（如单独一句「感谢分享」「收藏了」「干货满满」）。
+4. 语气像随手打字：口语、自然，可带一点个人感受或轻疑问，不要播音腔、作文腔、营销腔。
+5. 禁止：emoji、markdown、分点列表、用引号包住整句、自称 AI/机器人/助手、「根据你的帖子」「作为用户」等元话术。
+6. 不要大段复述楼主原文，不要教程式步骤，不要扮演版主或管理员。
+
+若信息太少，用一句自然的短评或轻问句，仍须不少于 16 字。"""
+
+
+def resolve_ai_system_prompt(cfg):
+    """自定义非空且启用时用自定义，否则用内置默认提示词。"""
+    if cfg.get("ai_use_custom_prompt") and (cfg.get("ai_system_prompt") or "").strip():
+        return cfg["ai_system_prompt"].strip()
+    return DEFAULT_AI_SYSTEM_PROMPT
+
+
+# ============ 本地配置持久化 ============
+def _config_path():
+    """配置文件路径（与程序同目录）"""
+    return os.path.join(_app_dir(), "config.json")
+
+
+def load_config():
+    """从本地文件加载配置，覆盖到 CFG（仅覆盖已知字段）"""
+    path = _config_path()
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for k in (
+            "proxy",
+            "ai_enabled",
+            "ai_url",
+            "ai_key",
+            "ai_model",
+            "ai_use_custom_prompt",
+            "ai_system_prompt",
+        ):
+            if k in data:
+                CFG[k] = data[k]
+    except Exception:
+        # 配置损坏时静默使用默认值
+        pass
+
+
+def save_config(cfg=None):
+    """保存配置到本地文件（仅持久化用户可配置项）
+
+    cfg: 要保存的配置 dict，默认用模块级 CFG。GUI 用的是 CFG.copy()，
+    需显式传入实例配置，否则会保存旧值。
+    """
+    cfg = cfg if cfg is not None else CFG
+    path = _config_path()
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "proxy": cfg.get("proxy", ""),
+                    "ai_enabled": cfg.get("ai_enabled", False),
+                    "ai_url": cfg.get("ai_url", ""),
+                    "ai_key": cfg.get("ai_key", ""),
+                    "ai_model": cfg.get("ai_model", ""),
+                    "ai_use_custom_prompt": cfg.get("ai_use_custom_prompt", False),
+                    "ai_system_prompt": cfg.get("ai_system_prompt", ""),
+                },
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+    except Exception:
+        pass
+
+
+# ============ AI 智能回复客户端 ============
+class AIClient:
+    """调用 Anthropic 原生 /v1/messages 接口生成拟人化回复
+
+    使用官方 anthropic SDK，支持自定义 base_url + api_key。
+    """
+
+    # 与模块级 DEFAULT_AI_SYSTEM_PROMPT 保持一致，供界面「恢复默认」使用
+    DEFAULT_AI_SYSTEM_PROMPT = DEFAULT_AI_SYSTEM_PROMPT
+
+    def __init__(s, url, key, model, lg=None, system_prompt=None):
+        s.lg = lg or (lambda *a, **k: None)
+        raw = (url or "").strip()
+        s.url = normalize_anthropic_base_url(raw)
+        if raw and raw.rstrip("/") != s.url:
+            s.lg(
+                f"AI API 地址已规范为: {s.url}（界面请填到 /v1，不要带 /responses 或 /messages）"
+            )
+        s.key = (key or "").strip()
+        s.model = (model or "claude-opus-4-8").strip()
+        s.system_prompt = (system_prompt or DEFAULT_AI_SYSTEM_PROMPT).strip()
+        s._client = None
+
+    def _ensure_client(s):
+        if s._client is not None:
+            return s._client
+        import anthropic
+
+        kwargs = {"api_key": s.key}
+        if s.url:
+            kwargs["base_url"] = s.url
+        s._client = anthropic.Anthropic(**kwargs)
+        return s._client
+
+    def generate_reply(s, title, posts):
+        """生成回复内容；失败返回 None（由调用方决定跳过）"""
+        try:
+            client = s._ensure_client()
+
+            title = (title or "").strip()[:200]
+            posts = [(p or "").strip()[:1200] for p in (posts or []) if (p or "").strip()]
+
+            context_parts = [f"帖子标题：{title or '（无标题）'}"]
+            if posts:
+                context_parts.append(f"主帖：{posts[0]}")
+                for i, p in enumerate(posts[1:], 1):
+                    context_parts.append(f"楼层{i}：{p}")
+            else:
+                context_parts.append("主帖：（未能读取正文，请根据标题写一句自然的短评）")
+
+            user_content = (
+                "\n".join(context_parts)
+                + f"\n\n请写一条回帖（{MIN_REPLY_CHARS}～45字，只输出正文）："
+            )
+
+            resp = client.messages.create(
+                model=s.model,
+                max_tokens=320,
+                system=s.system_prompt,
+                messages=[{"role": "user", "content": user_content}],
+            )
+
+            if resp.stop_reason == "refusal":
+                s.lg("AI 拒绝生成回复，跳过本次回复")
+                return None
+
+            text = "".join(
+                b.text for b in resp.content if getattr(b, "type", None) == "text"
+            ).strip()
+            text = s._sanitize_reply_text(text)
+
+            if len(text) < MIN_REPLY_CHARS:
+                s.lg(f"AI 回复过短（{len(text)}字），跳过本次回复")
+                return None
+            if len(text) > MAX_REPLY_CHARS:
+                text = text[:MAX_REPLY_CHARS].rstrip("，。！？、… ")
+                if len(text) < MIN_REPLY_CHARS:
+                    s.lg("AI 回复截断后过短，跳过本次回复")
+                    return None
+
+            return text
+        except Exception as e:
+            s.lg(f"AI 生成回复失败: {e}，跳过本次回复")
+            return None
+
+    @staticmethod
+    def _sanitize_reply_text(text):
+        """去掉常见 AI 痕迹与多余包裹"""
+        if not text:
+            return ""
+        t = text.strip()
+        for prefix in (
+            "回复：",
+            "回帖：",
+            "我的回复：",
+            "答：",
+            "Reply:",
+            "回复:",
+        ):
+            if t.startswith(prefix):
+                t = t[len(prefix) :].strip()
+        t = t.strip().strip('"').strip("'").strip("“”‘’")
+        for line in t.splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and not line.startswith("-"):
+                t = line
+                break
+        return t.strip()
 
 
 class Bot:
@@ -263,12 +490,42 @@ class Bot:
         s.initial_level_info = None  # 保存初始等级信息用于对比
         s.start_time = None  # 记录开始时间
 
+        # AI 智能回复客户端（启用且配置了 key 时才创建）
+        s.ai_client = None
+        if cfg.get("ai_enabled") and cfg.get("ai_key"):
+            s.ai_client = AIClient(
+                cfg.get("ai_url", ""),
+                cfg.get("ai_key", ""),
+                cfg.get("ai_model", "claude-opus-4-8"),
+                lg,
+                system_prompt=resolve_ai_system_prompt(cfg),
+            )
+
     def _random_delay(s, min_sec=0.5, max_sec=2.0, reason=""):
         """防风控：随机延迟"""
         delay = random.uniform(min_sec, max_sec)
         if reason:
             s.lg(f"[防风控] {reason}，等待 {delay:.1f}s")
         time.sleep(delay)
+
+    def _navigate(s, url, label=""):
+        """打开网页，带超时与失败日志"""
+        if not s.pg:
+            return False
+        if label:
+            s.lg(f"正在打开: {url}（{label}）")
+        else:
+            s.lg(f"正在打开: {url}")
+        ok = s.pg.get(url, show_errmsg=True, retry=2, timeout=90)
+        if not ok:
+            try:
+                s.lg(f"页面打开失败，当前地址: {s.pg.url}")
+            except Exception:
+                s.lg("页面打开失败")
+            s.lg(
+                "提示: 代理留空为直连；使用代理请确认端口与软件已开启"
+            )
+        return ok
 
     def start(s):
         # 确保先关闭旧的浏览器实例
@@ -289,22 +546,27 @@ class Bot:
             try:
                 co = ChromiumOptions()
 
-                # 设置用户数据目录
-                user_data_dir = os.path.join(os.getcwd(), "browser_data")
+                user_data_dir = os.path.join(_app_dir(), "browser_data")
                 co.set_user_data_path(user_data_dir)
 
-                if s.cfg["proxy"]:
-                    co.set_proxy(s.cfg["proxy"])
+                proxy = normalize_proxy(s.cfg.get("proxy"))
+                if proxy:
+                    co.set_proxy(proxy)
+                    s.lg(f"使用代理: {proxy}")
+                else:
+                    s.lg("未配置代理（直连）")
                 co.set_argument("--disable-blink-features=AutomationControlled")
 
-                # 设置浏览器窗口大小为屏幕高度
-                import tkinter as tk
+                if platform.system() == "Windows":
+                    try:
+                        import ctypes
 
-                root = tk.Tk()
-                screen_height = root.winfo_screenheight()
-                root.destroy()
+                        screen_height = ctypes.windll.user32.GetSystemMetrics(1)
+                    except Exception:
+                        screen_height = 900
+                else:
+                    screen_height = 900
 
-                # 设置窗口大小：宽度1200，高度为屏幕高度
                 co.set_argument(f"--window-size=1200,{screen_height}")
                 s.lg(f"设置浏览器窗口大小: 1200x{screen_height}")
 
@@ -344,8 +606,10 @@ class Bot:
         check_interval: 检查间隔（秒）
         """
         s.lg("检查登录...")
-        s.pg.get(s.cfg["base"])
-        time.sleep(3)
+        if not s._navigate(s.cfg["base"], "linux.do 首页"):
+            s.lg("无法打开 linux.do，任务终止")
+            return False
+        time.sleep(2)
 
         start_time = time.time()
         check_count = 0
@@ -400,13 +664,14 @@ class Bot:
             # 如果是最终获取，先强制刷新页面确保数据最新
             if is_final:
                 s.lg("强制刷新页面获取最新数据...")
-                s.pg.get(s.cfg["connect"])
+                if not s._navigate(s.cfg["connect"], "connect.linux.do"):
+                    return None
                 time.sleep(2)
-                # 刷新页面
                 s.pg.run_js("location.reload(true)")
                 time.sleep(4)
             else:
-                s.pg.get(s.cfg["connect"])
+                if not s._navigate(s.cfg["connect"], "connect.linux.do"):
+                    return None
                 time.sleep(4)
 
             info = s.pg.run_js("""
@@ -563,7 +828,8 @@ class Bot:
         """使用JS获取帖子列表（按回复数排序）"""
         url = s.cfg["base"] + cat["u"]
         s.lg("进入板块: " + cat["n"])
-        s.pg.get(url)
+        if not s._navigate(url, cat["n"]):
+            return []
         s._random_delay(2, 4, "页面加载")
 
         # 点击"回复"按钮进行排序
@@ -923,11 +1189,49 @@ class Bot:
             s.lg("点赞失败: " + str(e))
         return False
 
+    def read_topic_content(s, max_posts=4):
+        """读取当前话题页面的正文，用于 AI 生成上下文
+
+        返回字符串列表：[主帖正文, 回复1, 回复2, ...]，最多 max_posts 条。
+        读取失败返回空列表。
+        """
+        try:
+            posts = s.pg.run_js(
+                """
+            function readPosts(maxPosts) {
+                const result = [];
+                const cooked = document.querySelectorAll('.topic-post .cooked');
+                for (let i = 0; i < cooked.length && result.length < maxPosts; i++) {
+                    const text = (cooked[i].innerText || '').trim();
+                    if (text) {
+                        result.push(text.slice(0, 1200));
+                    }
+                }
+                return result;
+            }
+            return readPosts(arguments[0]);
+            """,
+                max_posts,
+            )
+            return posts or []
+        except Exception as e:
+            s.lg(f"读取帖子内容失败: {e}")
+            return []
+
     def do_reply(s, content=None):
         """回帖"""
         try:
             if content is None:
-                content = random.choice(s.cfg["tpl"])
+                # AI 智能回复：读取帖子内容，调用大模型动态生成
+                if s.ai_client:
+                    title = s.pg.title or ""
+                    posts = s.read_topic_content()
+                    content = s.ai_client.generate_reply(title, posts)
+                    if content is None:
+                        # AI 调用失败/拒绝/过短，按约定跳过本次回复
+                        return False
+                else:
+                    content = random.choice(s.cfg["tpl"])
 
             s.lg("准备回复: " + content)
 
@@ -950,13 +1254,14 @@ class Bot:
 
             s._random_delay(1.5, 3, "等待编辑器")
 
-            # 输入内容 - 使用安全的方式传递内容
+            # 输入内容 - 用 json.dumps 安全转义，避免引号/换行破坏 JS
+            content_js = json.dumps(content, ensure_ascii=False)
             s.pg.run_js(f"""
             (function() {{
                 const textarea = document.querySelector('#reply-control textarea, .d-editor-input');
                 if (textarea) {{
                     textarea.focus();
-                    textarea.value = '{content}';
+                    textarea.value = {content_js};
                     textarea.dispatchEvent(new Event('input', {{bubbles: true}}));
                 }}
             }})();
@@ -1420,8 +1725,8 @@ class GUI:
     def __init__(s):
         s.rt = tk.Tk()
         s.rt.title(f"Linux.do 刷帖助手 v{VERSION}")
-        s.rt.geometry("700x950")
-        s.rt.minsize(650, 850)  # 设置最小窗口大小
+        s.rt.geometry("700x1050")
+        s.rt.minsize(650, 920)  # 设置最小窗口大小
         s.rt.configure(bg="#1a1a2e")
 
         # 设置窗口图标
@@ -1434,6 +1739,9 @@ class GUI:
 
         # 不使用overrideredirect，保留系统标题栏以支持窗口拉伸
         # s.rt.overrideredirect(True)  # 移除默认标题栏
+
+        # 启动时加载本地持久化配置（覆盖到 CFG）
+        load_config()
 
         s.cats = [c.copy() for c in CATS]
         s.cfg = CFG.copy()
@@ -1956,6 +2264,127 @@ class GUI:
         )
         s.countdown_label.pack(side=tk.LEFT, padx=15)
 
+        # AI 智能回复设置区
+        ai_frame = tk.LabelFrame(
+            content,
+            text=" AI 智能回复（Anthropic 原生 API） ",
+            bg="#1a1a2e",
+            fg="#00d9ff",
+            font=(FONT_FAMILY, 9, "bold"),
+        )
+        ai_frame.pack(fill=tk.X, padx=15, pady=(0, 5))
+
+        # 第一行：开关 + 模型
+        ai_row1 = tk.Frame(ai_frame, bg="#1a1a2e")
+        ai_row1.pack(fill=tk.X, padx=10, pady=(5, 2))
+
+        s.ai_enabled_var = tk.BooleanVar(value=s.cfg.get("ai_enabled", False))
+        tk.Checkbutton(
+            ai_row1,
+            text="启用 AI 回复",
+            variable=s.ai_enabled_var,
+            bg="#1a1a2e",
+            fg="#eaeaea",
+            selectcolor="#0f3460",
+            activebackground="#1a1a2e",
+        ).pack(side=tk.LEFT, padx=(0, 10))
+
+        tk.Label(ai_row1, text="模型:", bg="#1a1a2e", fg="#eaeaea").pack(side=tk.LEFT)
+        s.ai_model_var = tk.StringVar(value=s.cfg.get("ai_model", "claude-opus-4-8"))
+        tk.Entry(
+            ai_row1,
+            textvariable=s.ai_model_var,
+            width=22,
+            bg="#16213e",
+            fg="#eaeaea",
+            insertbackground="#eaeaea",
+        ).pack(side=tk.LEFT, padx=5)
+
+        # 第二行：API URL
+        ai_row2 = tk.Frame(ai_frame, bg="#1a1a2e")
+        ai_row2.pack(fill=tk.X, padx=10, pady=2)
+        tk.Label(ai_row2, text="API URL:", bg="#1a1a2e", fg="#eaeaea", width=8, anchor=tk.W).pack(
+            side=tk.LEFT
+        )
+        s.ai_url_var = tk.StringVar(value=s.cfg.get("ai_url", "https://api.anthropic.com"))
+        tk.Entry(
+            ai_row2,
+            textvariable=s.ai_url_var,
+            bg="#16213e",
+            fg="#eaeaea",
+            insertbackground="#eaeaea",
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+
+        # 第三行：API Key
+        ai_row3 = tk.Frame(ai_frame, bg="#1a1a2e")
+        ai_row3.pack(fill=tk.X, padx=10, pady=(2, 5))
+        tk.Label(ai_row3, text="API Key:", bg="#1a1a2e", fg="#eaeaea", width=8, anchor=tk.W).pack(
+            side=tk.LEFT
+        )
+        s.ai_key_var = tk.StringVar(value=s.cfg.get("ai_key", ""))
+        tk.Entry(
+            ai_row3,
+            textvariable=s.ai_key_var,
+            show="*",
+            bg="#16213e",
+            fg="#eaeaea",
+            insertbackground="#eaeaea",
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+
+        # 第四行：系统提示词
+        ai_row4 = tk.Frame(ai_frame, bg="#1a1a2e")
+        ai_row4.pack(fill=tk.X, padx=10, pady=(2, 0))
+        s.ai_use_custom_prompt_var = tk.BooleanVar(
+            value=s.cfg.get("ai_use_custom_prompt", False)
+        )
+        tk.Checkbutton(
+            ai_row4,
+            text="使用自定义系统提示词（不勾选则用内置默认）",
+            variable=s.ai_use_custom_prompt_var,
+            bg="#1a1a2e",
+            fg="#eaeaea",
+            selectcolor="#0f3460",
+            activebackground="#1a1a2e",
+            command=s._on_ai_prompt_mode_toggle,
+        ).pack(side=tk.LEFT)
+
+        tk.Button(
+            ai_row4,
+            text="恢复默认提示词",
+            command=s._restore_ai_default_prompt,
+            bg="#0f3460",
+            fg="#eaeaea",
+            font=(FONT_FAMILY, 8),
+        ).pack(side=tk.RIGHT, padx=5)
+
+        ai_prompt_frame = tk.Frame(ai_frame, bg="#1a1a2e")
+        ai_prompt_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(2, 8))
+        tk.Label(
+            ai_prompt_frame,
+            text="系统提示词:",
+            bg="#1a1a2e",
+            fg="#888888",
+            font=(FONT_FAMILY, 8),
+            anchor=tk.W,
+        ).pack(anchor=tk.W)
+        s.ai_system_prompt_text = scrolledtext.ScrolledText(
+            ai_prompt_frame,
+            height=6,
+            bg="#16213e",
+            fg="#eaeaea",
+            font=(FONT_FAMILY, 9),
+            insertbackground="#eaeaea",
+            wrap=tk.WORD,
+        )
+        s.ai_system_prompt_text.pack(fill=tk.BOTH, expand=True)
+        initial_prompt = (
+            s.cfg.get("ai_system_prompt", "").strip()
+            if s.cfg.get("ai_use_custom_prompt")
+            else AIClient.DEFAULT_AI_SYSTEM_PROMPT
+        )
+        s.ai_system_prompt_text.insert("1.0", initial_prompt)
+        s._on_ai_prompt_mode_toggle()
+
         # 主区域
         main = tk.Frame(content, bg="#1a1a2e")
         main.pack(fill=tk.BOTH, expand=True, padx=15, pady=10)
@@ -2157,6 +2586,24 @@ class GUI:
             if cat["n"] == name:
                 cat["e"] = var.get()
                 break
+
+    def _on_ai_prompt_mode_toggle(s):
+        """切换是否使用自定义系统提示词"""
+        if s.ai_use_custom_prompt_var.get():
+            s.ai_system_prompt_text.config(state=tk.NORMAL)
+        else:
+            s.ai_system_prompt_text.config(state=tk.NORMAL)
+            s.ai_system_prompt_text.delete("1.0", tk.END)
+            s.ai_system_prompt_text.insert("1.0", AIClient.DEFAULT_AI_SYSTEM_PROMPT)
+            s.ai_system_prompt_text.config(state=tk.DISABLED)
+
+    def _restore_ai_default_prompt(s):
+        """将编辑区恢复为内置默认提示词，并改为使用默认（不勾选自定义）"""
+        s.ai_use_custom_prompt_var.set(False)
+        s.ai_system_prompt_text.config(state=tk.NORMAL)
+        s.ai_system_prompt_text.delete("1.0", tk.END)
+        s.ai_system_prompt_text.insert("1.0", AIClient.DEFAULT_AI_SYSTEM_PROMPT)
+        s.ai_system_prompt_text.config(state=tk.DISABLED)
 
     def _on_reply_toggle(s):
         """自动回复开关切换时的处理"""
@@ -2381,7 +2828,7 @@ class GUI:
         if s.th and s.th.is_alive():
             return
         # 更新配置
-        s.cfg["proxy"] = s.proxy_var.get()
+        s.cfg["proxy"] = s.proxy_var.get().strip()
         try:
             s.cfg["like_rate"] = int(s.like_var.get()) / 100
         except:
@@ -2396,6 +2843,17 @@ class GUI:
             s.cfg["wait_max"] = float(parts[1]) if len(parts) > 1 else float(parts[0])
         except:
             s.cfg["wait_min"], s.cfg["wait_max"] = 1, 3
+
+        # AI 智能回复配置
+        s.cfg["ai_enabled"] = s.ai_enabled_var.get()
+        s.cfg["ai_url"] = s.ai_url_var.get().strip()
+        s.cfg["ai_key"] = s.ai_key_var.get().strip()
+        s.cfg["ai_model"] = s.ai_model_var.get().strip() or "claude-opus-4-8"
+        s.cfg["ai_use_custom_prompt"] = s.ai_use_custom_prompt_var.get()
+        s.cfg["ai_system_prompt"] = s.ai_system_prompt_text.get("1.0", "end-1c").strip()
+
+        # 持久化配置到本地文件
+        save_config(s.cfg)
 
         s.start_btn.config(state=tk.DISABLED)
         s.stop_btn.config(state=tk.NORMAL)
