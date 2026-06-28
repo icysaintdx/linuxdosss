@@ -12,7 +12,7 @@ import platform
 
 # 项目信息
 APP_NAME = "LinuxDoHelper"
-APP_VERSION = "8.3"
+APP_VERSION = "8.5.0"
 MAIN_SCRIPT = "linux_do_gui.py"
 ICON_WIN = "icon.ico"  # Windows图标
 ICON_MAC = "icon.icns"  # macOS图标
@@ -73,6 +73,12 @@ def build_windows():
         "PIL.Image",
         "--hidden-import",
         "PIL.ImageDraw",
+        "--hidden-import",
+        "anthropic",
+        "--hidden-import",
+        "httpx",
+        "--hidden-import",
+        "pydantic",
         "--clean",
         "--noconfirm",
     ]
@@ -122,6 +128,12 @@ def build_macos():
         "PIL.Image",
         "--hidden-import",
         "PIL.ImageDraw",
+        "--hidden-import",
+        "anthropic",
+        "--hidden-import",
+        "httpx",
+        "--hidden-import",
+        "pydantic",
         "--clean",
         "--noconfirm",
     ]
@@ -172,6 +184,12 @@ def build_linux():
         "PIL.Image",
         "--hidden-import",
         "PIL.ImageDraw",
+        "--hidden-import",
+        "anthropic",
+        "--hidden-import",
+        "httpx",
+        "--hidden-import",
+        "pydantic",
         "--clean",
         "--noconfirm",
     ]
